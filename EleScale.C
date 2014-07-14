@@ -6,6 +6,7 @@
 #include <TTree.h>                  // class to access ntuples
 #include <TCanvas.h>                // class for drawing
 #include <TH1D.h>                   // 1D histograms
+#include <TLorentzVector.h>                   // 1D histograms
 #include <TGraphErrors.h>           // graphs
 #include <vector>                   // STL vector class
 #include <utility>                  // For STL pair class
@@ -38,12 +39,12 @@
 #include "RooFitResult.h"
 
 
-typedef ROOT::Math::LorentzVector<ROOT::Math::PtEtaPhiM4D<double> > LorentzVector;
+//typedef ROOT::Math::LorentzVector<ROOT::Math::PtEtaPhiM4D<double> > LorentzVector;
 
 
 //=== MAIN MACRO ================================================================================================= 
 
-void EleScale(const Int_t opt=0) {
+void EleScale(const Int_t opt=3) {
   
   //--------------------------------------------------------------------------------------------------------------
   // Settings 
@@ -51,26 +52,33 @@ void EleScale(const Int_t opt=0) {
   
   TString outputDir = "";
   TString pufname = "";
-  UInt_t runNumMin=0;
-  UInt_t runNumMax=0;
+  UInt_t runNumberMin=0;
+  UInt_t runNumberMax=0;
   
   if(opt==0) {
     outputDir = "Zee_Full2011";
     pufname   = "PileupReweighting.Fall11_To_Full2011.root";
-    runNumMin = 0;
-    runNumMax = 999999;
+    runNumberMin = 0;
+    runNumberMax = 999999;
   
   } else if(opt==1) {
     outputDir = "Zee_Run2011A";
     pufname   = "PileupReweighting.Fall11_To_Run2011A.root";
-    runNumMin = 0;
-    runNumMax = 173692;
+    runNumberMin = 0;
+    runNumberMax = 173692;
   
   } else if(opt==2) {
     outputDir = "Zee_Run2011B";
     pufname   = "PileupReweighting.Fall11_To_Run2011B.root";
-    runNumMin = 173693;
-    runNumMax = 999999;
+    runNumberMin = 173693;
+    runNumberMax = 999999;
+
+  } else if(opt==3) {
+    outputDir = "Zee_Run2012";
+    pufname   = "PileupReweighting.Fall11_To_Run2011B.root";
+    runNumberMin = 173693;
+    runNumberMax = 999999;
+  
   
   } else {
     cout << "Invalid option! Aborting..." << endl;
@@ -80,6 +88,12 @@ void EleScale(const Int_t opt=0) {
   vector<TString> infilenamev;
   infilenamev.push_back("data_select.raw.root");  // data
   infilenamev.push_back("zee_select.root");       // MC
+
+  vector<TString> treenamev;
+  treenamev.push_back("eleTree_DATA");  // data
+  treenamev.push_back("eleTree_DYJets");       // MC
+
+  TString infilename = "/tthome/bpollack/CMSSW_5_3_11_patch6/src/HZG_Analyzer/HiggsZGAnalyzer/eleFiles/eleFile_EE2012ABCD_07-14-14_ele.root";
   
   const Double_t MASS_LOW  = 60;
   const Double_t MASS_HIGH = 120;
@@ -92,7 +106,8 @@ void EleScale(const Int_t opt=0) {
   scEta_limits.push_back(make_pair(0.4,0.8));
   scEta_limits.push_back(make_pair(0.8,1.2));
   scEta_limits.push_back(make_pair(1.2,1.4442));
-  scEta_limits.push_back(make_pair(1.566,2.1));
+  //scEta_limits.push_back(make_pair(1.566,2.1));
+  scEta_limits.push_back(make_pair(1.4442,2.1));
   scEta_limits.push_back(make_pair(2.1,2.5));
 
   CPlot::sOutDir = outputDir;
@@ -126,64 +141,69 @@ void EleScale(const Int_t opt=0) {
   //
   // Declare ntuple variables
   //
-  UInt_t  runNum, lumiSec, evtNum;
+  UInt_t runNumber, lumiSection;
+  ULong64_t  eventNumber;
   UInt_t  npv, npu;
   Int_t   q1, q2;
-  LorentzVector *dilep=0, *lep1=0, *lep2=0;
-  ///// electron specific /////
-  LorentzVector *sc1=0, *sc2=0;
+  TLorentzVector *dilep=0, *ele1=0, *ele2=0;
+  Float_t SCetaEl1, SCetaEl2;
+
+
+  cout << "Processing " << infilename << "..." << endl;
+  TFile *infile = new TFile(infilename); assert(infile);
   
-  for(UInt_t ifile=0; ifile<infilenamev.size(); ifile++) {
-    cout << "Processing " << infilenamev[ifile] << "..." << endl;
-    TFile *infile = new TFile(infilenamev[ifile]); assert(infile);
-    TTree *intree = (TTree*)infile->Get("Events"); assert(intree);
+  for(UInt_t itree=0; itree<treenamev.size(); itree++) {
+    cout << "Processing " << treenamev[itree] << "..." << endl;
+    TTree *intree = (TTree*)infile->Get(treenamev[itree]); assert(intree);
   
-    intree->SetBranchAddress("runNum", &runNum);   // event run number
-    intree->SetBranchAddress("lumiSec",&lumiSec);  // event lumi section
-    intree->SetBranchAddress("evtNum", &evtNum);   // event number
-    intree->SetBranchAddress("npv",    &npv);	   // number of primary vertices
-    intree->SetBranchAddress("npu",    &npu);	   // number of in-time PU events (MC)
-    intree->SetBranchAddress("q1",     &q1);	   // charge of lead lepton
-    intree->SetBranchAddress("q2",     &q2);	   // charge of trail lepton
-    intree->SetBranchAddress("dilep",  &dilep);    // dilepton 4-vector
-    intree->SetBranchAddress("lep1",   &lep1);     // lead lepton 4-vector
-    intree->SetBranchAddress("lep2",   &lep2);     // trail lepton 4-vector
-    intree->SetBranchAddress("sc1",    &sc1);	   // lead Supercluster 4-vector
-    intree->SetBranchAddress("sc2",    &sc2);	   // trail Supercluster 4-vector 
+    intree->SetBranchAddress("runNumber", &runNumber);   // event run number
+    intree->SetBranchAddress("lumiSection",&lumiSection);  // event lumi section
+    intree->SetBranchAddress("eventNumber", &eventNumber);   // event number
+    intree->SetBranchAddress("ele1",   &ele1);     // lead lepton 4-vector
+    intree->SetBranchAddress("ele2",   &ele2);     // trail lepton 4-vector
+    intree->SetBranchAddress("SCetaEl1",    &SCetaEl1);	   // lead Supercluster 4-vector
+    intree->SetBranchAddress("SCetaEl2",    &SCetaEl2);	   // trail Supercluster 4-vector 
   
+    int nEvents = 0;
     for(UInt_t ientry=0; ientry<intree->GetEntries(); ientry++) {
       intree->GetEntry(ientry);
+      nEvents++;
+      if (nEvents%1000000 == 0) cout<<"Events passed: "<<nEvents<<endl; 
       
       Double_t weight = 1;
-      if(ifile==eMC) {
-        weight *= puWeights->GetBinContent(npu+1);
-      }
+      //if(itree==eMC) {
+      //  weight *= puWeights->GetBinContent(npu+1);
+      //}
       
-      if(ifile==eData) {
-        if(runNum < runNumMin) continue;
-	if(runNum > runNumMax) continue;
-	if(runNum >= 171050 && runNum <= 171578) continue;
+      /*
+      if(itree==eData) {
+        if(runNumber < runNumberMin) continue;
+	if(runNumber > runNumberMax) continue;
+	if(runNumber >= 171050 && runNumber <= 171578) continue;
       }
+  */
+
         
-      if(q1 == q2) continue;
-      if(dilep->M()	  < MASS_LOW)  continue;
-      if(dilep->M()	  > MASS_HIGH) continue;
-      if(sc1->Pt()	  < PT_CUT)    continue;
-      if(sc2->Pt()	  < PT_CUT)    continue;
-      if(fabs(sc1->Eta()) > ETA_CUT)   continue;      
-      if(fabs(sc2->Eta()) > ETA_CUT)   continue;
+      //if(q1 == q2) continue;
+      //if(dilep->M()	  < MASS_LOW)  continue;
+      //if(dilep->M()	  > MASS_HIGH) continue;
+      if(ele1->Pt()	  < PT_CUT)    continue;
+      if(ele2->Pt()	  < PT_CUT)    continue;
+      if(fabs(SCetaEl1) > ETA_CUT)   continue;      
+      if(fabs(SCetaEl2) > ETA_CUT)   continue;
     
-      LorentzVector vLep1 = (*lep1);
-      LorentzVector vLep2 = (*lep2);
-      LorentzVector vDilep = vLep1 + vLep2;
+      TLorentzVector vele1 = (*ele1);
+      TLorentzVector vele2 = (*ele2);
+      TLorentzVector vDilep = vele1 + vele2;
     
       Int_t bin1=-1, bin2=-1;
       for(UInt_t i=0; i<scEta_limits.size(); i++) {
         Double_t etalow  = scEta_limits.at(i).first;
         Double_t etahigh = scEta_limits.at(i).second;
-        if(fabs(sc1->Eta())>=etalow && fabs(sc1->Eta())<=etahigh) bin1=i;
-        if(fabs(sc2->Eta())>=etalow && fabs(sc2->Eta())<=etahigh) bin2=i;
+        if(fabs(SCetaEl1)>=etalow && fabs(SCetaEl1)<=etahigh) bin1=i;
+        if(fabs(SCetaEl2)>=etalow && fabs(SCetaEl2)<=etahigh) bin2=i;
       }
+      
       assert(bin1>=0);
       assert(bin2>=0);
       Int_t ibin= (bin1<=bin2) ? bin1 : bin2;
@@ -193,12 +213,13 @@ void EleScale(const Int_t opt=0) {
       for(Int_t k=0; k<ibin; k++)
         n+=(scEta_limits.size()-k);
       
-      if(ifile==eData) hDatav[n]->Fill(vDilep.M(),weight);
-      if(ifile==eMC)   hMCv[n]->Fill(vDilep.M(),weight);
+      if(itree==eData) hDatav[n]->Fill(vDilep.M(),weight);
+      if(itree==eMC)   hMCv[n]->Fill(vDilep.M(),weight);
     }  
-    delete infile;
-    infile=0, intree=0;
+    intree=0;
   }
+  infile=0;
+  delete infile;
   
   //
   // Fit for energy scale and resolution corrections
@@ -379,12 +400,13 @@ void EleScale(const Int_t opt=0) {
   sprintf(txtfname,"%s/summary.txt",outputDir.Data());
   txtfile.open(txtfname);
   assert(txtfile.is_open());
-  txtfile << "  Data->MC scale correction" << endl;
+  txtfile << "  MC->Data scale correction" << endl;
   for(UInt_t ibin=0; ibin<scEta_limits.size(); ibin++) {
     Double_t etalow  = scEta_limits.at(ibin).first;
     Double_t etahigh = scEta_limits.at(ibin).second;
     txtfile << "$" << etalow << " < |\\eta| < " << etahigh << "$ & ";
-    txtfile << "$" << ((RooRealVar*)scalebins.at(ibin))->getVal() << "$ \\pm $" << ((RooRealVar*)scalebins.at(ibin))->getError() << "$ \\\\" << endl;
+    //txtfile << "$" << ((RooRealVar*)scalebins.at(ibin))->getVal() << "$ \\pm $" << ((RooRealVar*)scalebins.at(ibin))->getError() << "$ \\\\" << endl;
+    txtfile << "$" << 1.0/((RooRealVar*)scalebins.at(ibin))->getVal() << "$ \\pm $" << "-1" << "$ \\\\" << endl;
   }
   txtfile << endl;
   txtfile << "  MC->Data resolution correction [GeV]" << endl;

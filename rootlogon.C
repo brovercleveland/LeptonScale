@@ -6,8 +6,8 @@
   path += rfitpath;
   gSystem->SetIncludePath(path.Data());
 
-  gROOT->Macro("CPlot.cc++");
-  gROOT->Macro("MitStyleRemix.cc++");
+  gROOT->Macro("CPlot.cc+");
+  gROOT->Macro("MitStyleRemix.cc+");
   	    
   // Show which process needs debugging
   gInterpreter->ProcessLine(".! ps |grep root.exe");  
