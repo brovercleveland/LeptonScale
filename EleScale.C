@@ -97,7 +97,7 @@ void EleScale(const Int_t opt=3) {
   
   const Double_t MASS_LOW  = 60;
   const Double_t MASS_HIGH = 120;
-  const Double_t PT_CUT    = 20;
+  const Double_t PT_CUT    = 10;
   const Double_t ETA_CUT   = 2.5;
   const Double_t ELE_MASS  = 0.000511;  
   
@@ -109,6 +109,11 @@ void EleScale(const Int_t opt=3) {
   //scEta_limits.push_back(make_pair(1.566,2.1));
   scEta_limits.push_back(make_pair(1.4442,2.1));
   scEta_limits.push_back(make_pair(2.1,2.5));
+
+  vector<pair<Double_t,Double_t> > pT_limits;
+  pT_limits.push_back(make_pair(10.0,20.0));
+  pT_limits.push_back(make_pair(20.0,30.0));
+  pT_limits.push_back(make_pair(30.0,100000.0));
 
   CPlot::sOutDir = outputDir;
   
@@ -125,16 +130,26 @@ void EleScale(const Int_t opt=3) {
   TH1D  *puWeights = (TH1D*)pufile->Get("puWeights");
   
   char hname[100];
+
   vector<TH1D*> hMCv, hDatav;  
+  int nMap[6][6][3][3];
+
+  int n =0;
   for(UInt_t ibin=0; ibin<scEta_limits.size(); ibin++) {
-    for(UInt_t jbin=ibin; jbin<scEta_limits.size(); jbin++) {
-      sprintf(hname,"mc_%i_%i",ibin,jbin);
-      hMCv.push_back(new TH1D(hname,"",100,MASS_LOW,MASS_HIGH));
-      hMCv.back()->Sumw2();
-      
-      sprintf(hname,"data_%i_%i",ibin,jbin);
-      hDatav.push_back(new TH1D(hname,"",100,MASS_LOW,MASS_HIGH));
-      hDatav.back()->Sumw2();
+    for(UInt_t jbin=0; jbin<scEta_limits.size(); jbin++) {
+      for(UInt_t mbin=0; mbin<pT_limits.size(); mbin++) {
+        for(UInt_t nbin=mbin; nbin<pT_limits.size(); nbin++) {
+          sprintf(hname,"mc_%i_%i_%i_%i",ibin,jbin,mbin,nbin);
+          hMCv.push_back(new TH1D(hname,"",100,MASS_LOW,MASS_HIGH));
+          hMCv.back()->Sumw2();
+          
+          sprintf(hname,"data_%i_%i_%i_%i",ibin,jbin,mbin,nbin);
+          hDatav.push_back(new TH1D(hname,"",100,MASS_LOW,MASS_HIGH));
+          hDatav.back()->Sumw2();
+          nMap[ibin][jbin][mbin][nbin] = n;
+          n++;
+        }
+      }
     }
   }
   
@@ -146,7 +161,7 @@ void EleScale(const Int_t opt=3) {
   UInt_t  npv, npu;
   Int_t   q1, q2;
   TLorentzVector *dilep=0, *ele1=0, *ele2=0;
-  Float_t SCetaEl1, SCetaEl2;
+  Float_t SCetaEl1, SCetaEl2, eventWeight;
 
 
   cout << "Processing " << infilename << "..." << endl;
@@ -161,8 +176,9 @@ void EleScale(const Int_t opt=3) {
     intree->SetBranchAddress("eventNumber", &eventNumber);   // event number
     intree->SetBranchAddress("ele1",   &ele1);     // lead lepton 4-vector
     intree->SetBranchAddress("ele2",   &ele2);     // trail lepton 4-vector
-    intree->SetBranchAddress("SCetaEl1",    &SCetaEl1);	   // lead Supercluster 4-vector
-    intree->SetBranchAddress("SCetaEl2",    &SCetaEl2);	   // trail Supercluster 4-vector 
+    intree->SetBranchAddress("SCetaEl1",    &SCetaEl1);	   // lead Supercluster eta 
+    intree->SetBranchAddress("SCetaEl2",    &SCetaEl2);	   // trail Supercluster eta 
+    intree->SetBranchAddress("eventWeight",    &eventWeight);	   // PU weight 
   
     int nEvents = 0;
     for(UInt_t ientry=0; ientry<intree->GetEntries(); ientry++) {
@@ -170,19 +186,6 @@ void EleScale(const Int_t opt=3) {
       nEvents++;
       if (nEvents%1000000 == 0) cout<<"Events passed: "<<nEvents<<endl; 
       
-      Double_t weight = 1;
-      //if(itree==eMC) {
-      //  weight *= puWeights->GetBinContent(npu+1);
-      //}
-      
-      /*
-      if(itree==eData) {
-        if(runNumber < runNumberMin) continue;
-	if(runNumber > runNumberMax) continue;
-	if(runNumber >= 171050 && runNumber <= 171578) continue;
-      }
-  */
-
         
       //if(q1 == q2) continue;
       //if(dilep->M()	  < MASS_LOW)  continue;
@@ -206,15 +209,33 @@ void EleScale(const Int_t opt=3) {
       
       assert(bin1>=0);
       assert(bin2>=0);
-      Int_t ibin= (bin1<=bin2) ? bin1 : bin2;
-      Int_t jbin= (bin1<=bin2) ? bin2 : bin1;
+      Int_t ibin= bin1; 
+      Int_t jbin= bin2;
+
+      Int_t bin3=-1, bin4=-1;
+      for(UInt_t i=0; i<pT_limits.size(); i++) {
+        Double_t ptlow  = pT_limits.at(i).first;
+        Double_t pthigh = pT_limits.at(i).second;
+        if(fabs(ele1->Pt())>=ptlow && fabs(ele1->Pt())<=pthigh) bin3=i;
+        if(fabs(ele2->Pt())>=ptlow && fabs(ele2->Pt())<=pthigh) bin4=i;
+      }
+
+      assert(bin3>=0);
+      assert(bin4>=0);
+
+      Int_t mbin= (bin3<=bin4) ? bin3 : bin4;
+      Int_t nbin= (bin3<=bin4) ? bin4 : bin3;
       
+      /*
       UInt_t n=jbin-ibin;
       for(Int_t k=0; k<ibin; k++)
         n+=(scEta_limits.size()-k);
       
-      if(itree==eData) hDatav[n]->Fill(vDilep.M(),weight);
-      if(itree==eMC)   hMCv[n]->Fill(vDilep.M(),weight);
+      if(itree==eData) hDatav[n]->Fill(vDilep.M(),eventWeight);
+      if(itree==eMC)   hMCv[n]->Fill(vDilep.M(),eventWeight);
+      */
+      if(itree==eData) hDatav[nMap[ibin][jbin][mbin][nbin]]->Fill(vDilep.M(),eventWeight);
+      if(itree==eMC)   hMCv[nMap[ibin][jbin][mbin][nbin]]->Fill(vDilep.M(),eventWeight);
     }  
     intree=0;
   }
@@ -229,6 +250,8 @@ void EleScale(const Int_t opt=3) {
   char pname[100];
   char str1[100];
   char str2[100];
+  char str3[100];
+  char str4[100];
   TCanvas *c = MakeCanvas("c","c",800,600);
   
   // Dummy histograms for TLegend (I can't figure out how to properly pass RooFit objects...)
@@ -252,55 +275,67 @@ void EleScale(const Int_t opt=3) {
   
   map<string,TH1*> hmap;  // Mapping of category labels and data histograms
   
-  RooArgList scalebins;   // List of RooRealVars storing per bin energy scale corrections
-  RooArgList sigmabins;   // List of RooRealVars storing per bin energy resolution corrections
+  //RooArgList scalebins;   // List of RooRealVars storing per bin energy scale corrections
+  //RooArgList sigmabins;   // List of RooRealVars storing per bin energy resolution corrections
+  RooArgList scalebins[3];   // List of RooRealVars storing per bin energy scale corrections
+  RooArgList sigmabins[3];   // List of RooRealVars storing per bin energy resolution corrections
   Int_t intOrder = 1;     // Interpolation order for       
-  for(UInt_t ibin=0; ibin<scEta_limits.size(); ibin++) {
-    sprintf(vname,"scale_%i",ibin);
-    RooRealVar *scalebinned = new RooRealVar(vname,vname,1.0,0.8,1.2);      
-    scalebins.add(*scalebinned);
-    
-    sprintf(vname,"sigma_%i",ibin);
-    RooRealVar *sigmabinned = new RooRealVar(vname,vname,0.8,0.0,5.0);      
-    sigmabins.add(*sigmabinned);
+  
+  for(UInt_t mbin=0; mbin<pT_limits.size(); mbin++) {
+    for(UInt_t ibin=0; ibin<scEta_limits.size(); ibin++) {
+      sprintf(vname,"scale_%i_%i",ibin,mbin);
+      RooRealVar *scalebinned = new RooRealVar(vname,vname,1.0,0.8,1.2);      
+      scalebins[mbin].add(*scalebinned);
+      
+      sprintf(vname,"sigma_%i_%i",ibin,mbin);
+      RooRealVar *sigmabinned = new RooRealVar(vname,vname,0.8,0.0,5.0);      
+      sigmabins[mbin].add(*sigmabinned);
+    }
   }
     
   for(UInt_t ibin=0; ibin<scEta_limits.size(); ibin++) {
-    for(UInt_t jbin=ibin; jbin<scEta_limits.size(); jbin++) {
-      UInt_t n=jbin-ibin;
-      for(UInt_t k=0; k<ibin; k++)
-        n+=(scEta_limits.size()-k);
+    for(UInt_t jbin=0; jbin<scEta_limits.size(); jbin++) {
+      for(UInt_t mbin=0; mbin<pT_limits.size(); mbin++) {
+        for(UInt_t nbin=mbin; nbin<pT_limits.size(); nbin++) {
+      //UInt_t n=jbin-ibin;
+      //for(UInt_t k=0; k<ibin; k++)
+      //  n+=(scEta_limits.size()-k);
+      //
       
-      sprintf(vname,"masslinearshifted_%i_%i",ibin,jbin);
-      RooFormulaVar *masslinearshifted = new RooFormulaVar(vname,vname,"sqrt(@0*@1)",RooArgList(*scalebins.at(ibin),*scalebins.at(jbin)));
+          cout<<"bins "<<ibin<<jbin<<mbin<<nbin<<endl;
+          sprintf(vname,"masslinearshifted_%i_%i_%i_%i",ibin,jbin,mbin,nbin);
+          RooFormulaVar *masslinearshifted = new RooFormulaVar(vname,vname,"sqrt(@0*@1)",RooArgList(*scalebins[mbin].at(ibin),*scalebins[nbin].at(jbin)));
 
-      sprintf(vname,"massshiftedscEta_%i_%i",ibin,jbin);
-      RooLinearVar *massshiftedscEta = new RooLinearVar(vname,vname,mass,*masslinearshifted,RooConst(0.0));        
-      
-      // MC-based template
-      sprintf(vname,"zmassmcscEta_%i_%i",ibin,jbin);
-      RooDataHist *zmassmcscEta = new RooDataHist(vname,vname,RooArgList(massmc),hMCv[n]);      
-      sprintf(vname,"masstemplatescEta_%i_%i",ibin,jbin);
-      RooHistPdf *masstemplatescEta = new RooHistPdf(vname,vname,RooArgList(*massshiftedscEta),RooArgList(massmc),*zmassmcscEta,intOrder);             
+          sprintf(vname,"massshiftedscEta_%i_%i_%i_%i",ibin,jbin,mbin,nbin);
+          RooLinearVar *massshiftedscEta = new RooLinearVar(vname,vname,mass,*masslinearshifted,RooConst(0.0));        
 
-      // Gaussian smearing function
-      sprintf(vname,"sigmascEta_%i_%i",ibin,jbin);
-      RooFormulaVar *sigmascEta = new RooFormulaVar(vname,vname,"TMath::Max(0.01,sqrt(@0*@0+@1*@1))",RooArgList(*sigmabins.at(ibin),*sigmabins.at(jbin)));        
-      sprintf(vname,"resscEta_%i_%i",ibin,jbin);
-      RooGaussian *resscEta = new RooGaussian(vname,vname,mass,RooConst(0.),*sigmascEta);
+          // MC-based template
+          sprintf(vname,"zmassmcscEta_%i_%i_%i_%i",ibin,jbin,mbin,nbin);
+          RooDataHist *zmassmcscEta = new RooDataHist(vname,vname,RooArgList(massmc),hMCv[nMap[ibin][jbin][mbin][nbin]]);      
+          sprintf(vname,"masstemplatescEta_%i_%i_%i_%i",ibin,jbin,mbin,nbin);
+          RooHistPdf *masstemplatescEta = new RooHistPdf(vname,vname,RooArgList(*massshiftedscEta),RooArgList(massmc),*zmassmcscEta,intOrder);             
 
-      // Fit model: MC-template convoluted with Gaussian
-      sprintf(vname,"fftscEta_%i_%i",ibin,jbin);
-      RooFFTConvPdf *fftscEta = new RooFFTConvPdf(vname,vname,mass,*masstemplatescEta,*resscEta);
-      fftscEta->setBufferStrategy(RooFFTConvPdf::Flat);
-      
-      // Add bin as a category
-      char zscEta_catname[100];
-      sprintf(zscEta_catname,"zscEta_cat_%i_%i",ibin,jbin);
-      zscEta_cat.defineType(zscEta_catname); 
-      zscEta_cat.setLabel(zscEta_catname);
-      hmap.insert(pair<string,TH1*>(zscEta_catname,hDatav[n]));      
-      combscalefit.addPdf(*fftscEta,zscEta_catname);
+          // Gaussian smearing function
+          sprintf(vname,"sigmascEta_%i_%i_%i_%i",ibin,jbin,mbin,nbin);
+          RooFormulaVar *sigmascEta = new RooFormulaVar(vname,vname,"TMath::Max(0.01,sqrt(@0*@0+@1*@1))",RooArgList(*sigmabins[mbin].at(ibin),*sigmabins[nbin].at(jbin)));        
+          sprintf(vname,"resscEta_%i_%i_%i_%i",ibin,jbin,mbin,nbin);
+          RooGaussian *resscEta = new RooGaussian(vname,vname,mass,RooConst(0.),*sigmascEta);
+
+          // Fit model: MC-template convoluted with Gaussian
+          sprintf(vname,"fftscEta_%i_%i_%i_%i",ibin,jbin,mbin,nbin);
+          RooFFTConvPdf *fftscEta = new RooFFTConvPdf(vname,vname,mass,*masstemplatescEta,*resscEta);
+          fftscEta->setBufferStrategy(RooFFTConvPdf::Flat);
+
+          // Add bin as a category
+          char zscEta_catname[100];
+          sprintf(zscEta_catname,"zscEta_cat_%i_%i_%i_%i",ibin,jbin,mbin,nbin);
+          zscEta_cat.defineType(zscEta_catname); 
+          zscEta_cat.setLabel(zscEta_catname);
+          hmap.insert(pair<string,TH1*>(zscEta_catname,hDatav[nMap[ibin][jbin][mbin][nbin]]));      
+          combscalefit.addPdf(*fftscEta,zscEta_catname);
+
+        }
+      }
     }
   }
   
@@ -308,80 +343,95 @@ void EleScale(const Int_t opt=3) {
   RooDataHist zdatascEta_comb("zdatascEta_comb","zdatascEta_comb",RooArgList(mass),zscEta_cat,hmap,1.0/(hDatav.size()));
   combscalefit.fitTo(zdatascEta_comb,PrintEvalErrors(kFALSE),Minos(kFALSE),Strategy(0),Minimizer("Minuit2",""));
 
-  Double_t xval[scEta_limits.size()];
-  Double_t xerr[scEta_limits.size()];
-  Double_t scaleDatatoMC[scEta_limits.size()];
-  Double_t scaleDatatoMCerr[scEta_limits.size()];
-  Double_t scaleMCtoData[scEta_limits.size()];
-  Double_t scaleMCtoDataerr[scEta_limits.size()];
-  Double_t sigmaMCtoData[scEta_limits.size()];
-  Double_t sigmaMCtoDataerr[scEta_limits.size()];
+  Double_t xval[pT_limits.size()][scEta_limits.size()];
+  Double_t xerr[pT_limits.size()][scEta_limits.size()];
+  Double_t scaleDatatoMC[pT_limits.size()][scEta_limits.size()];
+  Double_t scaleDatatoMCerr[pT_limits.size()][scEta_limits.size()];
+  Double_t scaleMCtoData[pT_limits.size()][scEta_limits.size()];
+  Double_t scaleMCtoDataerr[pT_limits.size()][scEta_limits.size()];
+  Double_t sigmaMCtoData[pT_limits.size()][scEta_limits.size()];
+  Double_t sigmaMCtoDataerr[pT_limits.size()][scEta_limits.size()];
   
-  for(UInt_t ibin=0; ibin<scEta_limits.size(); ibin++) {
-    Double_t etalow  = scEta_limits.at(ibin).first;
-    Double_t etahigh = scEta_limits.at(ibin).second;
-    
-    xval[ibin] = 0.5*(etahigh+etalow);
-    xerr[ibin] = 0.5*(etahigh-etalow);
-    
-    scaleDatatoMC[ibin]    = ((RooRealVar*)scalebins.at(ibin))->getVal();
-    scaleDatatoMCerr[ibin] = ((RooRealVar*)scalebins.at(ibin))->getError();
+  for(UInt_t mbin=0; mbin<pT_limits.size(); mbin++) {
+    for(UInt_t ibin=0; ibin<scEta_limits.size(); ibin++) {
+        Double_t etalow  = scEta_limits.at(ibin).first;
+        Double_t etahigh = scEta_limits.at(ibin).second;
+        
+        xval[mbin][ibin] = 0.5*(etahigh+etalow);
+        xerr[mbin][ibin] = 0.5*(etahigh-etalow);
+        
+        scaleDatatoMC[mbin][ibin]    = ((RooRealVar*)scalebins[mbin].at(ibin))->getVal();
+        scaleDatatoMCerr[mbin][ibin] = ((RooRealVar*)scalebins[mbin].at(ibin))->getError();
 
-    scaleMCtoData[ibin]    = 1.0/scaleDatatoMC[ibin];
-    scaleMCtoDataerr[ibin] = scaleDatatoMCerr[ibin]/scaleDatatoMC[ibin]/scaleDatatoMC[ibin];
+        scaleMCtoData[mbin][ibin]    = 1.0/scaleDatatoMC[ibin][mbin];
+        scaleMCtoDataerr[mbin][ibin] = scaleDatatoMCerr[ibin][mbin]/scaleDatatoMC[ibin][mbin]/scaleDatatoMC[ibin][mbin];
+        
+        sigmaMCtoData[mbin][ibin]    = ((RooRealVar*)sigmabins[mbin].at(ibin))->getVal();
+        sigmaMCtoDataerr[mbin][ibin] = ((RooRealVar*)sigmabins[mbin].at(ibin))->getError();
+    }
+    TGraphErrors *grScaleDatatoMC = new TGraphErrors(scEta_limits.size(),xval[mbin],scaleDatatoMC[mbin],xerr[mbin],scaleDatatoMCerr[mbin]);
+    TGraphErrors *grScaleMCtoData = new TGraphErrors(scEta_limits.size(),xval[mbin],scaleMCtoData[mbin],xerr[mbin],scaleMCtoDataerr[mbin]);
+    TGraphErrors *grSigmaMCtoData = new TGraphErrors(scEta_limits.size(),xval[mbin],sigmaMCtoData[mbin],xerr[mbin],sigmaMCtoDataerr[mbin]);
     
-    sigmaMCtoData[ibin]    = ((RooRealVar*)sigmabins.at(ibin))->getVal();
-    sigmaMCtoDataerr[ibin] = ((RooRealVar*)sigmabins.at(ibin))->getError();
+
+    char ptrange[100];
+    sprintf(ptrange,"ele_scale_datatomc_pT_%i",mbin);
+    CPlot plotScale1(ptrange,"","Supercluster |#eta|","Data scale correction");
+    plotScale1.AddGraph(grScaleDatatoMC,"",kBlue);
+    plotScale1.SetYRange(0.99,1.01);
+    plotScale1.AddLine(0,1,2.75,1,kBlack,7);
+    plotScale1.Draw(c,kTRUE,format);
+    
+    sprintf(ptrange,"ele_scale_mctodata_%i",mbin);
+    CPlot plotScale2(ptrange,"","Supercluster |#eta|","MC#rightarrowData scale correction");
+    plotScale2.AddGraph(grScaleMCtoData,"",kBlue);
+    plotScale2.SetYRange(0.99,1.01);
+    plotScale2.AddLine(0,1,2.75,1,kBlack,7);
+    plotScale2.Draw(c,kTRUE,format);
+
+    sprintf(ptrange,"ele_res_mctodata_%i",mbin);
+    CPlot plotRes(ptrange,"","Supercluster |#eta|","MC#rightarrowData additional smear [GeV]");
+    plotRes.AddGraph(grSigmaMCtoData,"",kBlue);
+    plotRes.SetYRange(0,1.6);
+    plotRes.Draw(c,kTRUE,format);
   }
-  TGraphErrors *grScaleDatatoMC = new TGraphErrors(scEta_limits.size(),xval,scaleDatatoMC,xerr,scaleDatatoMCerr);
-  TGraphErrors *grScaleMCtoData = new TGraphErrors(scEta_limits.size(),xval,scaleMCtoData,xerr,scaleMCtoDataerr);
-  TGraphErrors *grSigmaMCtoData = new TGraphErrors(scEta_limits.size(),xval,sigmaMCtoData,xerr,sigmaMCtoDataerr);
-  
-  CPlot plotScale1("ele_scale_datatomc","","Supercluster |#eta|","Data scale correction");
-  plotScale1.AddGraph(grScaleDatatoMC,"",kBlue);
-  plotScale1.SetYRange(0.99,1.01);
-  plotScale1.AddLine(0,1,2.75,1,kBlack,7);
-  plotScale1.Draw(c,kTRUE,format);
-  
-  CPlot plotScale2("ele_scale_mctodata","","Supercluster |#eta|","MC#rightarrowData scale correction");
-  plotScale2.AddGraph(grScaleMCtoData,"",kBlue);
-  plotScale2.SetYRange(0.99,1.01);
-  plotScale2.AddLine(0,1,2.75,1,kBlack,7);
-  plotScale2.Draw(c,kTRUE,format);
-
-  CPlot plotRes("ele_res_mctodata","","Supercluster |#eta|","MC#rightarrowData additional smear [GeV]");
-  plotRes.AddGraph(grSigmaMCtoData,"",kBlue);
-  plotRes.SetYRange(0,1.6);
-  plotRes.Draw(c,kTRUE,format);
 
   for(UInt_t ibin=0; ibin<scEta_limits.size(); ibin++) {
-    for(UInt_t jbin=ibin; jbin<scEta_limits.size(); jbin++) {
-      UInt_t n=jbin-ibin;
-      for(UInt_t k=0; k<ibin; k++)
-        n+=(scEta_limits.size()-k);
-      
-      // Post-fit plot
-      RooPlot *frame = mass.frame();
-      char catname[100]; sprintf(catname,"zscEta_cat_%i_%i",ibin,jbin);
-      char cutstr[100];  sprintf(cutstr,"zscEta_cat==zscEta_cat::%s",catname); 
-      RooDataHist zmc(catname,catname,RooArgList(mass),hMCv[n]);
-      RooHistPdf mctemplate(catname,catname,RooArgList(mass),zmc,intOrder);          
-      mctemplate.plotOn(frame,LineColor(kBlue),LineWidth(1),Normalization(hDatav[n]->GetEntries()));            
-      mctemplate.plotOn(frame,LineColor(kBlue),FillColor(kBlue),FillStyle(3002),DrawOption("F"),Normalization(hDatav[n]->GetEntries()));      
-      zdatascEta_comb.plotOn(frame,Cut(cutstr),MarkerStyle(kFullCircle),MarkerSize(1.0),DrawOption("ZP"));
-      combscalefit.plotOn(frame,Slice(zscEta_cat,catname),ProjWData(RooArgSet(mass,catname),zdatascEta_comb),
-                          LineColor(kGreen+2));           
-      sprintf(pname,"postfit_%i_%i",ibin,jbin);
-      sprintf(str1,"[%.1f, %.1f]",scEta_limits.at(ibin).first,scEta_limits.at(ibin).second);
-      sprintf(str2,"[%.1f, %.1f]",scEta_limits.at(jbin).first,scEta_limits.at(jbin).second);
-      CPlot plot(pname,frame,"","m(e^{+}e^{-}) [GeV/c^{2}]","Events / 0.6 GeV/c^{2}");
-      plot.AddTextBox(str1,0.21,0.80,0.45,0.87,0,kBlack,-1);
-      plot.AddTextBox(str2,0.21,0.73,0.45,0.80,0,kBlack,-1);
-      plot.SetLegend(0.75,0.64,0.93,0.88);
-      plot.GetLegend()->AddEntry(hDummyData,"Data","PL");
-      plot.GetLegend()->AddEntry(hDummyMC,"Sim","FL");
-      plot.GetLegend()->AddEntry(hDummyFit,"Fit","L");
-      plot.Draw(c,kTRUE,format);
+    for(UInt_t jbin=0; jbin<scEta_limits.size(); jbin++) {
+      for(UInt_t mbin=0; mbin<pT_limits.size(); mbin++) {
+        for(UInt_t nbin=mbin; nbin<pT_limits.size(); nbin++) {
+          //UInt_t n=jbin-ibin;
+          //for(UInt_t k=0; k<ibin; k++)
+          // n+=(scEta_limits.size()-k);
+
+          // Post-fit plot
+          RooPlot *frame = mass.frame();
+          char catname[100]; sprintf(catname,"zscEta_cat_%i_%i_%i_%i",ibin,jbin,mbin,nbin);
+          char cutstr[100];  sprintf(cutstr,"zscEta_cat==zscEta_cat::%s",catname); 
+          RooDataHist zmc(catname,catname,RooArgList(mass),hMCv[nMap[ibin][jbin][mbin][nbin]]);
+          RooHistPdf mctemplate(catname,catname,RooArgList(mass),zmc,intOrder);          
+          mctemplate.plotOn(frame,LineColor(kBlue),LineWidth(1),Normalization(hDatav[nMap[ibin][jbin][mbin][nbin]]->GetEntries()));            
+          mctemplate.plotOn(frame,LineColor(kBlue),FillColor(kBlue),FillStyle(3002),DrawOption("F"),Normalization(hDatav[nMap[ibin][jbin][mbin][nbin]]->GetEntries()));      
+          zdatascEta_comb.plotOn(frame,Cut(cutstr),MarkerStyle(kFullCircle),MarkerSize(1.0),DrawOption("ZP"));
+          combscalefit.plotOn(frame,Slice(zscEta_cat,catname),ProjWData(RooArgSet(mass,catname),zdatascEta_comb),
+              LineColor(kGreen+2));           
+          sprintf(pname,"postfit_%i_%i_%i_%i",ibin,jbin,mbin,nbin);
+          sprintf(str1,"ele1Eta: [%.1f, %.1f]",scEta_limits.at(ibin).first,scEta_limits.at(ibin).second);
+          sprintf(str2,"ele2Eta: [%.1f, %.1f]",scEta_limits.at(jbin).first,scEta_limits.at(jbin).second);
+          sprintf(str3,"ele1Pt: [%.1f, %.1f]",pT_limits.at(mbin).first,pT_limits.at(mbin).second);
+          sprintf(str4,"ele2Pt: [%.1f, %.1f]",pT_limits.at(nbin).first,pT_limits.at(nbin).second);
+          CPlot plot(pname,frame,"","m(e^{+}e^{-}) [GeV/c^{2}]","Events / 0.6 GeV/c^{2}");
+          plot.AddTextBox(str1,0.21,0.80,0.45,0.87,0,kBlack,-1);
+          plot.AddTextBox(str2,0.21,0.73,0.45,0.80,0,kBlack,-1);
+          plot.AddTextBox(str3,0.21,0.66,0.45,0.80,0,kBlack,-1);
+          plot.AddTextBox(str4,0.21,0.51,0.45,0.80,0,kBlack,-1);
+          plot.SetLegend(0.75,0.64,0.93,0.88);
+          plot.GetLegend()->AddEntry(hDummyData,"Data","PL");
+          plot.GetLegend()->AddEntry(hDummyMC,"Sim","FL");
+          plot.GetLegend()->AddEntry(hDummyFit,"Fit","L");
+          plot.Draw(c,kTRUE,format);
+        }
+      }
     }
   }
 
@@ -406,7 +456,7 @@ void EleScale(const Int_t opt=3) {
     Double_t etahigh = scEta_limits.at(ibin).second;
     txtfile << "$" << etalow << " < |\\eta| < " << etahigh << "$ & ";
     //txtfile << "$" << ((RooRealVar*)scalebins.at(ibin))->getVal() << "$ \\pm $" << ((RooRealVar*)scalebins.at(ibin))->getError() << "$ \\\\" << endl;
-    txtfile << "$" << 1.0/((RooRealVar*)scalebins.at(ibin))->getVal() << "$ \\pm $" << "-1" << "$ \\\\" << endl;
+    txtfile << "$" << 1.0/((RooRealVar*)scalebins[3].at(ibin))->getVal() << "$ \\pm $" << "-1" << "$ \\\\" << endl;
   }
   txtfile << endl;
   txtfile << "  MC->Data resolution correction [GeV]" << endl;
@@ -414,7 +464,7 @@ void EleScale(const Int_t opt=3) {
     Double_t etalow  = scEta_limits.at(ibin).first;
     Double_t etahigh = scEta_limits.at(ibin).second;
     txtfile << etalow << " < |\\eta| < " << etahigh << " & ";
-    txtfile << "$" << ((RooRealVar*)sigmabins.at(ibin))->getVal() << "$ \\pm $" << ((RooRealVar*)sigmabins.at(ibin))->getError() << "$ \\\\" << endl;
+    txtfile << "$" << ((RooRealVar*)sigmabins[3].at(ibin))->getVal() << "$ \\pm $" << ((RooRealVar*)sigmabins[3].at(ibin))->getError() << "$ \\\\" << endl;
   }
   txtfile.close();
   
